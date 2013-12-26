@@ -1,0 +1,394 @@
+<!DOCTYPE HTML>
+<html lang="en">
+	<head>
+		<title>three.js particle tutorial</title>
+		<meta charset="utf-8">
+		<style type="text/css">
+
+			body {
+				background-color: #000000;
+				margin: 0px;
+				overflow: hidden;
+				font-size: 10pt;
+			}
+
+			#meshes {
+				position:absolute;
+				left:0px;
+				top:0px;
+				color:#fff;
+			}
+
+			#meshes a {
+				display: inline-block;
+				width: 200px;
+				color: #888888;
+			}
+
+			#meshes a:hover {
+				color: #ffff00;
+			}
+
+		</style>
+	</head>
+	<body>
+		<script src="Three.js"></script>
+		<script src="TrackballControls.js"></script>
+		<script src="raw/fford.m3d-object.js"></script>
+		<xscript src="raw/primera.m3d-object.js"></script>
+		<xscript src="raw/Oul_Island.bfp-6.m3d-object.js"></script>
+		<xscript src="raw/Thruxton.bfp-6.m3d-object.js"></script>
+		<xscript src="Raw/General.bfp-merged.m3d-object.js"></script>
+		<xscript src="Raw/Croft.bfp-merged.m3d-object.js"></script>
+		<xscript src="raw/allff2.m3d-object.js"></script>
+		<xscript src="raw/Pit_BRR-5.m3d-object.js"></script>
+		<xscript src="raw/kncrowds.m3d-object.js"></script>
+		<xscript src="raw/TVRS12.m3d-object.js"></script>
+		<xscript src="raw/LISTER.m3d-object.js"></script>
+		<xscript src="raw/bhcrowds.m3d-object.js"></script>
+		<xscript src="raw/ALLVOL.m3d-object.js"></script>
+		<xscript src="raw/ALLAUDI.m3d-object.js"></script>
+		<xscript src="raw/ALLNISS.m3d-object.js"></script>
+		<xscript src="raw/ALLhon.m3d-object.js"></script>
+		<xscript src="raw/ALLmon.m3d-object.js"></script>
+		<xscript src="raw/JOYSTIK.m3d-object.js"></script>
+		<xscript src="raw/KEYBORD.m3d-object.js"></script>
+		<xscript src="raw/jag.m3d-object.js"></script>
+		<xscript src="raw/tvr.m3d-object.js"></script>
+		<xscript src="raw/storm.m3d-object.js"></script>
+		<div id="meshes">
+		</div>
+
+		<script defer="defer">
+
+			var camera, scene, renderer,
+				mouseX = 0, mouseY = 0,
+				particles = [];
+
+			var mesh_by_name = {};
+			var material_by_name = {};
+			var mesh_names = [];
+
+			var total_tris = 0;
+
+			init();
+
+			function init() {
+				camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 1, 100000000 );
+				camera.position.set(-50030,30900,-250000);
+				camera.up = new THREE.Vector3(0,1,0);
+				camera.lookAt(new THREE.Vector3(0,0,0));
+
+				scene = new THREE.Scene();
+				scene.add(camera);
+
+				controls = new THREE.TrackballControls( camera );
+				controls.target.set( 0, 0, 0 )
+
+				renderer = new THREE.WebGLRenderer();
+				// renderer = new THREE.CanvasRenderer();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				document.body.appendChild( renderer.domElement );
+
+				var obj = loadObject(file_object);
+				scene.add(obj);
+
+				setInterval(update, 1000/30);
+
+				cube = new THREE.Mesh(
+					new THREE.CubeGeometry(1000, 1000, 1000),
+					new THREE.MeshBasicMaterial({
+				        wireframe: true,
+				        color: 'cyan'
+				    }));
+				scene.add(cube);
+
+				mesh_names.sort();
+
+				function highlight(name) {
+					// console.log('highlight mesh', name);
+					mesh_names.forEach(function(name2) {
+						var mesh = mesh_by_name[name2];
+						var mat = material_by_name[name2];
+						mat.color.setHex((name2 == name) ? 0xffff00 : 0x666666);
+						mat.linewidth = (name2 == name) ? 3 : 1;
+					});
+				}
+
+				var el = document.getElementById('meshes');
+				for(var i=0; i<mesh_names.length; i++) {
+					(function(name) {
+						var el2 = document.createElement('a');
+						el2.innerText = name;
+						el2.addEventListener('mouseover', function(e) { highlight(name); });
+						el2.addEventListener('mouseout', function(e) { highlight(''); });
+						el.appendChild(el2);
+					})(mesh_names[i]);
+				}
+
+				highlight('');
+
+				console.log('total triangles', total_tris);
+				console.log('total meshes', mesh_names.length);
+			}
+
+			function update() {
+				controls.update();
+				renderer.render( scene, camera );
+			}
+
+			function loadObject(def) {
+				var ret = new THREE.Mesh();
+
+				var material = new THREE.SpriteCanvasMaterial({
+					color: 0xff00ff,
+					program: function ( context ) {
+						context.beginPath();
+						context.arc( 0, 0, 0.5, 0, Math.PI * 2, true );
+						context.fill();
+					}
+				});
+
+				for ( var j=0; j<def.hier.length; j++ ) {
+					var hierdef = def.hier[j];
+
+					particle = new THREE.Sprite(material);
+					particle.position.x = hierdef.matrix[12];
+					particle.position.y = hierdef.matrix[13];
+					particle.position.z = hierdef.matrix[14];
+					particle.scale.x = particle.scale.y = particle.scale.z = 1;
+					ret.add( particle );
+
+					for ( var i=0; i<hierdef.meshes.length; i++ ) {
+						var meshdef = hierdef.meshes[i];
+						console.log('mesh #' + i + ', ' + meshdef.numtris+' tris.');
+
+						console.log('unreferenced mesh:', meshdef);
+						var mesh = loadMesh(meshdef, i % 2 == 0 ? 0x00ff00 : 0xFF0000);
+						particle.add( mesh );
+
+						console.log();
+					}
+				}
+
+				/*
+				for ( var i=0; i<def.hier.length; i++ ) {
+					var hierdef = def.hier[i];
+
+					particle = new THREE.Sprite(material);
+					particle.position.x = hierdef.matrix[12];
+					particle.position.y = hierdef.matrix[13];
+					particle.position.z = hierdef.matrix[14];
+					particle.scale.x = particle.scale.y = particle.scale.z = 10000;
+					ret.add( particle );
+					// particles.push(particle);
+
+					console.log('mesh id', hierdef.mesh, hierdef.mesh, hierdef.matrix);
+					if (typeof(hierdef.mesh) !== 'undefined') {
+						var meshdef = def.meshes[ hierdef.mesh ];
+						console.log('meshdef', meshdef);
+						if (meshdef) {
+							var mesh = loadMesh(meshdef, 0xffffff);
+							mesh.position.x = hierdef.matrix[12];
+							mesh.position.y = hierdef.matrix[13];
+							mesh.position.z = hierdef.matrix[14];
+							ret.add( mesh );
+						} else {
+							console.warn('mesh id not found', hierdef.mesh);
+						}
+					}
+				}
+				*/
+
+				/*
+				for(var i=0; i<def.meshes.length; i++) {
+					var mesh = loadMesh(def.meshes[i]);
+					ret.add( mesh );
+				}
+				*/
+
+				return ret;
+			}
+
+			function loadMesh(meshdef, color) {
+				var ret = new THREE.Mesh();
+
+				/*
+				var material = new THREE.SpriteCanvasMaterial({
+					color: 0xffffff,
+					program: function ( context ) {
+						context.beginPath();
+						context.arc( 0, 0, 0.5, 0, Math.PI * 2, true );
+						context.fill();
+					}
+				});
+
+				for ( var i=0; i<meshdef.points.length; i++ ) {
+					var pointdef = meshdef.points[i];
+					particle = new THREE.Sprite( material );
+					particle.position.x = pointdef.x ; // Math.random() * 1000 - 500;
+					particle.position.y = pointdef.y ; // Math.random() * 1000 - 500;
+					particle.position.z = pointdef.z ;
+					particle.scale.x = particle.scale.y = particle.scale.z = 3000;
+					ret.add( particle );
+					// particles.push(particle);
+				}
+				*/
+				var mat = new THREE.LineBasicMaterial({
+					color: color, // meshdef.lines[i].c,
+					opacity: 1.0
+				});
+
+				total_tris += meshdef.numtris;
+
+				for( var i=0; i<meshdef.tris.length; i++) {
+
+					var v0 = meshdef.points[meshdef.tris[i].p0];
+					var v1 = meshdef.points[meshdef.tris[i].p1];
+					var v2 = meshdef.points[meshdef.tris[i].p2];
+
+					var p0 = new THREE.Vector3(
+						v0.x,
+						v0.y,
+						v0.z
+					);
+
+					var p1 = new THREE.Vector3(
+						v1.x,
+						v1.y,
+						v1.z
+					);
+
+					var p2 = new THREE.Vector3(
+						v2.x,
+						v2.y,
+						v2.z
+					);
+
+					var pc = new THREE.Vector3(
+						(p0.x + p1.x + p2.x) / 3,
+						(p0.y + p1.y + p2.y) / 3,
+						(p0.z + p1.z + p2.z) / 3
+					);
+
+					var NS = 0.2;
+					var nc = new THREE.Vector3(
+						(v0.nx + v1.nx + v2.nx) / 3,
+						(v0.ny + v1.ny + v2.ny) / 3,
+						(v0.nz + v1.nz + v2.nz) / 3
+					);
+
+					var pn = new THREE.Vector3(
+						pc.x + nc.x * NS,
+						pc.y + nc.y * NS,
+						pc.z + nc.z * NS
+					);
+
+					var p0n = new THREE.Vector3(
+						p0.x + v0.nx * NS,
+						p0.y + v0.ny * NS,
+						p0.z + v0.nz * NS
+					);
+
+					var p1n = new THREE.Vector3(
+						p1.x + v0.nx * NS,
+						p1.y + v0.ny * NS,
+						p1.z + v0.nz * NS
+					);
+
+					var p2n = new THREE.Vector3(
+						p2.x + v2.nx * NS,
+						p2.y + v2.ny * NS,
+						p2.z + v2.nz * NS
+					);
+
+					var geometry = new THREE.Geometry();
+					geometry.vertices.push( p0 );
+					geometry.vertices.push( p1 );
+					geometry.vertices.push( p2 );
+					geometry.vertices.push( p0 );
+					var line = new THREE.Line(geometry, mat);
+					ret.add( line );
+
+					/*
+					var geometry = new THREE.Geometry();
+					geometry.vertices.push( p1 );
+					geometry.vertices.push( p2 );
+					var line = new THREE.Line(
+						geometry,
+						new THREE.LineBasicMaterial({
+							color: 0x00ff00 | meshdef.lines[i].c,
+							opacity: 1.0
+						})
+					);
+					ret.add( line );
+
+					var geometry = new THREE.Geometry();
+					geometry.vertices.push( p2 );
+					geometry.vertices.push( p0 );
+					var line = new THREE.Line(
+						geometry,
+						new THREE.LineBasicMaterial({
+							color: 0x0000ff | meshdef.lines[i].c,
+							opacity: 1.0
+						})
+					);
+					ret.add( line );
+					*/
+
+					/*
+					var geometry = new THREE.Geometry();
+					geometry.vertices.push( p0 );
+					geometry.vertices.push( p0n );
+					var line = new THREE.Line(
+						geometry,
+						new THREE.LineBasicMaterial({
+							color: 0x888888,
+							opacity: 1.0
+						})
+					);
+					ret.add( line );
+
+					var geometry = new THREE.Geometry();
+					geometry.vertices.push( p1 );
+					geometry.vertices.push( p1n );
+					var line = new THREE.Line(
+						geometry,
+						new THREE.LineBasicMaterial({
+							color: 0x888888,
+							opacity: 1.0
+						})
+					);
+					ret.add( line );
+
+					var geometry = new THREE.Geometry();
+					geometry.vertices.push( p2 );
+					geometry.vertices.push( p2n );
+					var line = new THREE.Line(
+						geometry,
+						new THREE.LineBasicMaterial({
+							color: 0x888888,
+							opacity: 1.0
+						})
+					);
+					ret.add( line );
+					*/
+				}
+
+				mesh_by_name[meshdef.name] = ret;
+				material_by_name[meshdef.name] = mat;
+				mesh_names.push(meshdef.name);
+
+				return ret;
+			}
+
+			function particleRender( context ) {
+				context.beginPath();
+				context.arc( 0, 0, 2, 0,  Math.PI * 2, true );
+				context.fill();
+			};
+
+		</script>
+	</body>
+</html>

@@ -1,0 +1,328 @@
+<!DOCTYPE HTML>
+<html lang="en">
+	<head>
+		<title>three.js particle tutorial</title>
+		<meta charset="utf-8">
+		<style type="text/css">
+
+			body {
+				background-color: #444;
+				margin: 0px;
+				overflow: hidden;
+				font-size: 10pt;
+			}
+
+			#meshes {
+				position:absolute;
+				left:0px;
+				top:0px;
+				color:#fff;
+			}
+
+			#meshes a {
+				display: inline-block;
+				width: 120px;
+				color: #888888;
+			}
+
+			#meshes a:hover {
+				color: #ffff00;
+			}
+
+		</style>
+	</head>
+	<body>
+		<script src="Three.js"></script>
+		<script src="TrackballControls.js"></script>
+	
+		<script src="Raw/KnockHil.bfp-merged.m3d-object.js"></script>
+		<xscript src="raw/ALLVOL.m3d-object.js"></script>
+		
+		<xscript src="raw/fford.m3d-object.js"></script>
+		<xscript src="raw/primera.m3d-object.js"></script>
+		<xscript src="raw/Oul_Island.bfp-6.m3d-object.js"></script>
+		<xscript src="raw/Thruxton.bfp-merged.m3d-object.js"></script>
+		<xscript src="Raw/General.bfp-merged.m3d-object.js"></script>
+		<xscript src="raw/allff2.m3d-object.js"></script>
+		<xscript src="raw/Pit_BRR-5.m3d-object.js"></script>
+		<xscript src="raw/kncrowds.m3d-object.js"></script>
+		<xscript src="raw/LISTER.m3d-object.js"></script>
+		<xscript src="raw/bhcrowds.m3d-object.js"></script>
+		<xscript src="raw/ALLAUDI.m3d-object.js"></script>
+		<xscript src="raw/ALLNISS.m3d-object.js"></script>
+		<xscript src="raw/ALLhon.m3d-object.js"></script>
+		<xscript src="raw/ALLmon.m3d-object.js"></script>
+		<xscript src="raw/JOYSTIK.m3d-object.js"></script>
+		<xscript src="raw/KEYBORD.m3d-object.js"></script>
+		<xscript src="raw/jag.m3d-object.js"></script>
+		<xscript src="raw/tvr.m3d-object.js"></script>
+		<xscript src="raw/storm.m3d-object.js"></script>
+		<div id="meshes">
+		</div>
+
+		<script defer="defer">
+
+			var camera, scene, renderer,
+				mouseX = 0, mouseY = 0,
+				particles = [];
+
+			var mesh_by_name = {};
+			var material_by_name = {};
+			var mesh_names = [];
+			var material_by_meshname = {};
+			var queued_textures = [];
+
+			var total_tris = 0;
+
+			init();
+
+			function setvis(name, vis) {
+				var mesh = mesh_by_name[name];
+				if (mesh) {
+					mesh.traverse(function(child) {
+						child.visible = vis;
+						child.needsUpdate = true;
+					});
+				}
+			}
+
+			function setvis2(name, vis) {
+				mesh_names.forEach(function(name2) {
+					setvis(name2, false);
+				});
+				mesh_names.forEach(function(name2) {
+					if (name2.indexOf(name) != -1) {
+						setvis(name2, true);
+					}
+				});
+			}
+
+			function highlight(name) {
+				console.log('highlight', name);
+				if (name == '') {
+					mesh_names.forEach(function(name2) {
+						setvis(name2, true);
+					});
+				} else {
+					mesh_names.forEach(function(name2) {
+						setvis(name2, false);
+					});
+					setvis(name, true);
+				}
+			}
+
+			function toggle(name) {
+				console.log('toggle', name);
+				if (mesh_by_name[name]) {
+					mesh_by_name[name].visible = !mesh_by_name[name].visible;
+					//	mesh_by_name[name].needsUpdate = true;
+					console.log(name +' is visible='+mesh_by_name[name].visible);
+
+					setvis(name, mesh_by_name[name].visible);
+				}
+
+				/*
+				// console.log('highlight mesh', name);
+				mesh_names.forEach(function(name2) {
+					var mesh = mesh_by_name[name2];
+					var mat = material_by_name[name2];
+					mat.color.setHex((name2 == name) ? 0xffff00 : 0x666666);
+					mat.linewidth = (name2 == name) ? 3 : 1;
+				});
+				*/
+			}
+
+			function init() {
+				camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 100000, 100000000 );
+				camera.position.set(-50030,30900,-2500000);
+				camera.up = new THREE.Vector3(0,1,0);
+				camera.lookAt(new THREE.Vector3(0,0,0));
+
+				scene = new THREE.Scene();
+				scene.add(camera);
+
+				controls = new THREE.TrackballControls( camera );
+				controls.target.set( 0, 0, 0 )
+
+				renderer = new THREE.WebGLRenderer();
+				// renderer = new THREE.CanvasRenderer();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				document.body.appendChild( renderer.domElement );
+
+				var obj = loadObject(file_object);
+				scene.add(obj);
+
+				setInterval(update, 1000/30);
+
+				cube = new THREE.Mesh(
+					new THREE.CubeGeometry(1000, 1000, 1000),
+					new THREE.MeshBasicMaterial({
+				        wireframe: true,
+				        color: 'cyan'
+				    }));
+				scene.add(cube);
+
+				mesh_names.sort();
+
+				var el = document.getElementById('meshes');
+				for(var i=0; i<mesh_names.length; i++) {
+					(function(name) {
+						var el2 = document.createElement('a');
+						el2.innerText = name;
+						el2.addEventListener('mouseover', function(e) { highlight(name); });
+						el2.addEventListener('mouseout', function(e) { highlight(''); });
+						el2.addEventListener('click', function(e) { toggle(name); });
+						el.appendChild(el2);
+					})(mesh_names[i]);
+				}
+
+				highlight('');
+
+				console.log('total triangles', total_tris);
+				console.log('total meshes', mesh_names.length);
+			}
+
+			function update() {
+				controls.update();
+				renderer.render( scene, camera );
+			}
+
+			function loadObject(def) {
+				var ret = new THREE.Mesh();
+
+				/*
+				var material = new THREE.SpriteCanvasMaterial({
+					color: 0xff00ff,
+					program: function ( context ) {
+						context.beginPath();
+						context.arc( 0, 0, 0.5, 0, Math.PI * 2, true );
+						context.fill();
+					}
+				});
+*/
+
+				for ( var j=0; j<def.hier.length; j++ ) {
+					var hierdef = def.hier[j];
+
+					particle = new THREE.Mesh();
+					particle.position.x = hierdef.matrix[12];
+					particle.position.y = hierdef.matrix[13];
+					particle.position.z = hierdef.matrix[14];
+					particle.scale.x = particle.scale.y = particle.scale.z = 1;
+					ret.add( particle );
+
+					for ( var i=0; i<hierdef.meshes.length; i++ ) {
+						var meshdef = hierdef.meshes[i];
+						console.log('mesh #' + i + ', ' + meshdef.numtris+' tris.');
+
+						console.log('unreferenced mesh:', meshdef);
+						var mesh = loadMesh(meshdef, i % 2 == 0 ? 0x00ff00 : 0xFF0000);
+						particle.add( mesh );
+
+						console.log();
+					}
+				}
+
+				return ret;
+			}
+
+			function startLoadingMaterial(nam) {
+				if (queued_textures.indexOf(nam) != -1)
+					return;
+
+				// var mat = new THREE.MeshNormalMaterial();
+				var mat = new THREE.MeshBasicMaterial({color: 0xffffff});
+				material_by_name[nam] = mat;
+
+				var texture = THREE.ImageUtils.loadTexture('raw/' + nam + '.png', {}, function() {
+					console.log('loaded texture', texture);
+					mat.map = texture;
+					mat.needsUpdate = true;
+				});
+
+				queued_textures.push(nam);
+				return mat;
+			}
+
+			function getNamedMaterial(nam) {
+				return material_by_name[nam];
+			}
+
+			function loadMesh(meshdef, color) {
+
+				var rootmesh = new THREE.Mesh();
+
+				total_tris += meshdef.numtris;
+
+				var textures = [];
+				var geom_by_texture = {};
+
+				for( var i=0; i<meshdef.tris.length; i++) {
+					var tridef = meshdef.tris[i];
+					startLoadingMaterial(tridef.texture);
+					if (textures.indexOf(tridef.texture) == -1) {
+						textures.push(tridef.texture);
+					}
+				}
+
+				textures.forEach(function(tex) {
+					geom_by_texture[tex] = new THREE.Geometry();
+
+					// copy all vertices to all meshes
+					for(var i=0; i<meshdef.points.length; i++) {
+						var point = meshdef.points[i];
+						var vec = new THREE.Vector3( point.x, point.y, point.z );
+						geom_by_texture[tex].vertices.push(vec);
+					}
+				});
+
+				for( var i=0; i<meshdef.tris.length; i++) {
+
+					var tridef = meshdef.tris[i];
+					var geom = geom_by_texture[tridef.texture];
+
+					var v0 = meshdef.points[tridef.p0];
+					var v1 = meshdef.points[tridef.p1];
+					var v2 = meshdef.points[tridef.p2];
+
+					var nc = new THREE.Vector3(
+						(v0.nx + v1.nx + v2.nx) / 3,
+						(v0.ny + v1.ny + v2.ny) / 3,
+						(v0.nz + v1.nz + v2.nz) / 3
+					);
+
+					var f = new THREE.Face3( tridef.p0, tridef.p1, tridef.p2 );
+
+					f.vertexNormals = [
+						new THREE.Vector3(v0.nx, v0.ny, v0.nz),
+						new THREE.Vector3(v1.nx, v1.ny, v1.nz),
+						new THREE.Vector3(v2.nx, v2.ny, v2.nz)
+					];
+
+					f.normal = nc;
+
+					geom.faces.push( f );
+
+					geom.faceVertexUvs[0].push([
+						new THREE.Vector2(v0.u / 65536.0, -v0.v / 65536.0),
+						new THREE.Vector2(v1.u / 65536.0, -v1.v / 65536.0),
+						new THREE.Vector2(v2.u / 65536.0, -v2.v / 65536.0)
+					]);
+				}
+
+				textures.forEach(function(tex) {
+					var mat = getNamedMaterial(tex);
+					var tri = new THREE.Mesh(geom_by_texture[tex], mat);
+					rootmesh.add( tri );
+				});
+
+				mesh_by_name[meshdef.name] = rootmesh;
+				mesh_names.push(meshdef.name);
+
+				return rootmesh;
+			}
+
+		</script>
+	</body>
+</html>

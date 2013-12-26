@@ -1,0 +1,327 @@
+<!DOCTYPE HTML>
+<html lang="en">
+	<head>
+		<title>three.js particle tutorial</title>
+		<meta charset="utf-8">
+		<style type="text/css">
+
+			body {
+				background-color: #444;
+				margin: 0px;
+				overflow: hidden;
+				font-size: 10pt;
+			}
+
+			#meshes {
+				position:absolute;
+				left:0px;
+				top:0px;
+				color:#fff;
+			}
+
+			#meshes a {
+				display: inline-block;
+				width: 120px;
+				color: #888888;
+			}
+
+			#meshes a:hover {
+				color: #ffff00;
+			}
+
+		</style>
+	</head>
+	<body>
+		<script src="Three.js"></script>
+		<script src="TrackballControls.js"></script>
+	
+		<xscript src="Raw/KnockHil.bfp-merged.m3d-object.js"></script>
+		<xscript src="raw/ALLVOL.m3d-object.js"></script>
+		
+		<xscript src="raw/fford.m3d-object.js"></script>
+		<xscript src="raw/primera.m3d-object.js"></script>
+		<xscript src="raw/Oul_Island.bfp-6.m3d-object.js"></script>
+		<xscript src="raw/Thruxton.bfp-merged.m3d-object.js"></script>
+		<xscript src="Raw/General.bfp-merged.m3d-object.js"></script>
+		<xscript src="raw/allff2.m3d-object.js"></script>
+		<xscript src="raw/Pit_BRR-5.m3d-object.js"></script>
+		<xscript src="raw/kncrowds.m3d-object.js"></script>
+		<xscript src="raw/LISTER.m3d-object.js"></script>
+		<xscript src="raw/bhcrowds.m3d-object.js"></script>
+		<xscript src="raw/ALLAUDI.m3d-object.js"></script>
+		<xscript src="raw/ALLNISS.m3d-object.js"></script>
+		<xscript src="raw/ALLhon.m3d-object.js"></script>
+		<xscript src="raw/ALLmon.m3d-object.js"></script>
+		<xscript src="raw/JOYSTIK.m3d-object.js"></script>
+		<xscript src="raw/KEYBORD.m3d-object.js"></script>
+		<xscript src="raw/jag.m3d-object.js"></script>
+		<xscript src="raw/tvr.m3d-object.js"></script>
+		<xscript src="raw/storm.m3d-object.js"></script>
+		<div id="meshes">
+		</div>
+
+		<script defer="defer">
+
+			var TOCAModel = function() {
+				this.rootObject = new THREE.Mesh();
+				this.mesh_by_name = {};
+				this.material_by_name = {};
+				this.mesh_names = [];
+				this.material_by_meshname = {};
+				this.queued_textures = [];
+			}
+
+			TOCAModel.prototype.load = function(def) {
+				// var ret = new THREE.Mesh();
+				for (var j=0; j<def.hier.length; j++) {
+					var hierdef = def.hier[j];
+
+					var base = new THREE.Mesh();
+					base.position.x = hierdef.matrix[12];
+					base.position.y = hierdef.matrix[13];
+					base.position.z = hierdef.matrix[14];
+					base.scale.x = base.scale.y = base.scale.z = 1;
+					this.rootObject.add( base );
+
+					for (var i=0; i<hierdef.meshes.length; i++) {
+						var meshdef = hierdef.meshes[i];
+						console.log('mesh #' + i + ' "'+meshdef.name+'" ' + meshdef.numtris+' tris.');
+
+						// console.log('unreferenced mesh:', meshdef);
+						var mesh = this._loadMesh(meshdef);
+						base.add( mesh );
+					}
+				}
+			}
+
+			TOCAModel.prototype._startLoadingMaterial = function(nam) {
+				if (this.queued_textures.indexOf(nam) != -1)
+					return;
+
+				this.queued_textures.push(nam);
+
+				// var mat = new THREE.MeshNormalMaterial();
+				var mat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+				this.material_by_name[nam] = mat;
+
+				var tex = THREE.ImageUtils.loadTexture('raw/' + nam + '.png', {}, function() {
+					console.log('loaded texture', tex);
+					setTimeout(function() {
+						mat.map = tex;
+						mat.needsUpdate = true;
+					}, 1000);
+				});
+			}
+
+			TOCAModel.prototype._getNamedMaterial = function(nam) {
+				return this.material_by_name[nam];
+			}
+
+			TOCAModel.prototype._loadMesh = function(meshdef) {
+				var _this = this;
+				var rootmesh = new THREE.Mesh();
+
+				var textures = [];
+				var geom_by_texture = {};
+
+				for( var i=0; i<meshdef.tris.length; i++) {
+					var tridef = meshdef.tris[i];
+					this._startLoadingMaterial(tridef.texture);
+					if (textures.indexOf(tridef.texture) == -1) {
+						textures.push(tridef.texture);
+					}
+				}
+
+				textures.forEach(function(tex) {
+					var geom = new THREE.Geometry();
+
+					// copy all vertices to all meshes
+					for(var i=0; i<meshdef.points.length; i++) {
+						var point = meshdef.points[i];
+						var vec = new THREE.Vector3(point.x, point.y, point.z);
+						geom.vertices.push(vec);
+					}
+					geom_by_texture[tex] = geom;
+				});
+
+				for( var i=0; i<meshdef.tris.length; i++) {
+					var tridef = meshdef.tris[i];
+					var geom = geom_by_texture[tridef.texture];
+
+					var v0 = meshdef.points[tridef.p0];
+					var v1 = meshdef.points[tridef.p1];
+					var v2 = meshdef.points[tridef.p2];
+
+					var nc = new THREE.Vector3(
+						(v0.nx + v1.nx + v2.nx) / 3,
+						(v0.ny + v1.ny + v2.ny) / 3,
+						(v0.nz + v1.nz + v2.nz) / 3
+					);
+
+					var f = new THREE.Face3( tridef.p0, tridef.p1, tridef.p2 );
+
+					f.vertexNormals = [
+						new THREE.Vector3(v0.nx, v0.ny, v0.nz),
+						new THREE.Vector3(v1.nx, v1.ny, v1.nz),
+						new THREE.Vector3(v2.nx, v2.ny, v2.nz)
+					];
+
+					f.normal = nc;
+
+					geom.faces.push(f);
+
+					geom.faceVertexUvs[0].push([
+						new THREE.Vector2(v0.u / 65536.0, -v0.v / 65536.0),
+						new THREE.Vector2(v1.u / 65536.0, -v1.v / 65536.0),
+						new THREE.Vector2(v2.u / 65536.0, -v2.v / 65536.0)
+					]);
+				}
+
+				textures.forEach(function(tex) {
+					var mat = _this._getNamedMaterial(tex);
+					var geom = geom_by_texture[tex];
+
+					geom.computeCentroids();
+					geom.computeFaceNormals();
+
+					var mesh = new THREE.Mesh(geom, mat);
+					mesh.needsUpdate = true;
+					rootmesh.add( mesh );
+				});
+
+				rootmesh.needsUpdate = true;
+				this.mesh_by_name[meshdef.name] = rootmesh;
+				this.mesh_names.push(meshdef.name);
+
+				return rootmesh;
+			}
+
+			TOCAModel.prototype.setvis = function(name, vis) {
+				var mesh = this.mesh_by_name[name];
+				if (mesh) {
+					mesh.traverse(function(child) {
+						if (vis != child.visible) {
+							child.visible = vis;
+							child.needsUpdate = true;
+						}
+					});
+				}
+			}
+
+			TOCAModel.prototype.setvis2 = function(name, vis) {
+				var _this = this;
+				this.mesh_names.forEach(function(name2) {
+					_this.setvis(name2, false);
+				});
+				this.mesh_names.forEach(function(name2) {
+					if (name2.indexOf(name) != -1 && name != '') {
+						_this.setvis(name2, true);
+					}
+				});
+			}
+
+			TOCAModel.prototype.loadFromURL = function(url) {
+				var _this = this;
+				var xhr = new XMLHttpRequest();
+				var length = 0;
+				xhr.onreadystatechange = function () {
+					if ( xhr.readyState === xhr.DONE ) {
+						if ( xhr.status === 200 || xhr.status === 0 ) {
+							if ( xhr.responseText ) {
+								var blob = JSON.parse( xhr.responseText );
+								console.log('Loaded blob', blob);
+								_this.load(blob);
+							} else {
+								console.warn( "THREE.JSONLoader: [" + url + "] seems to be unreachable or file there is empty" );
+							}
+							// context.onLoadComplete();
+						} else {
+							console.error( "THREE.JSONLoader: Couldn't load [" + url + "] [" + xhr.status + "]" );
+						}
+					}
+				};
+				xhr.open( "GET", url, true );
+				xhr.withCredentials = this.withCredentials;
+				xhr.send( null );
+			}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			var camera, scene, renderer;
+
+			init();
+
+			function init() {
+				camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 100000, 100000000 );
+				camera.position.set(-5030,3900,-250000);
+				camera.up = new THREE.Vector3(0,1,0);
+				camera.lookAt(new THREE.Vector3(0,0,0));
+
+				scene = new THREE.Scene();
+				scene.add(camera);
+
+				controls = new THREE.TrackballControls( camera );
+				controls.target.set( 0, 0, 0 );
+
+				renderer = new THREE.WebGLRenderer();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				document.body.appendChild( renderer.domElement );
+
+				/*
+				var ground = new TOCAModel();
+				ground.loadFromURL('raw/KnockHil.bfp-merged.m3d-object.json');
+				scene.add(ground.rootObject);
+
+				var car = new TOCAModel();
+				car.loadFromURL('raw/ALLVOL.m3d-object.json');
+				scene.add(car.rootObject);
+	*/
+				var joystick = new TOCAModel();
+				joystick.loadFromURL('raw/JOYSTIK.m3d-object.json');
+				scene.add(joystick.rootObject);
+
+				var keyboard = new TOCAModel();
+				keyboard.loadFromURL('raw/KEYBORD.m3d-object.json');
+				scene.add(keyboard.rootObject);
+
+				// setInterval(update, 1000/30);
+
+				cube = new THREE.Mesh(
+					new THREE.CubeGeometry(65000, 65000, 65000),
+					new THREE.MeshBasicMaterial({
+				        wireframe: true,
+				        color: 'cyan'
+				    }));
+				scene.add(cube);
+
+				update();
+			}
+
+			function update() {
+
+				controls.update();
+				renderer.render( scene, camera );
+
+				requestAnimationFrame(update);
+			}
+
+
+		</script>
+	</body>
+</html>
