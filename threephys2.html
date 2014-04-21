@@ -1,0 +1,574 @@
+<!DOCTYPE HTML>
+<html lang="en">
+	<head>
+		<title>three.js particle tutorial</title>
+		<meta charset="utf-8">
+		<style type="text/css">
+
+			body {
+				background-color: #444;
+				margin: 0px;
+				overflow: hidden;
+				font-size: 10pt;
+			}
+
+			#meshes {
+				position:absolute;
+				left:0px;
+				top:0px;
+				color:#fff;
+			}
+
+			#meshes a {
+				display: inline-block;
+				width: 120px;
+				color: #888888;
+			}
+
+			#meshes a:hover {
+				color: #ffff00;
+			}
+
+		</style>
+	</head>
+	<body>
+		<script src="Three.js"></script>
+		<script src="TrackballControls.js"></script>
+		<script src="simplex-noise.js"></script>
+		<script src="heightmap.js"></script>
+		<script src="TOCAModel.js"></script>
+		<script src="jquery-1.11.0.js"></script>
+		<script type="text/javascript" src="physi.js"></script>
+
+		<div id="meshes"></div>
+
+		<script defer="defer">
+
+			var gridsize = 250;
+			var tilexoffset = 144224;
+			var tileyoffset = 77081;
+
+			Physijs.scripts.worker = 'physijs_worker.js';
+			Physijs.scripts.ammo = 'ammo.js';
+
+			var camera, scene, renderer;
+			var camera_index = 0;
+
+			var heightmap = new HeightMap();
+
+			var input = {
+				power: null,
+				direction: null,
+				steering: 0,
+				handbrake: false
+			};
+
+			var vehicle;
+
+			init();
+
+			var groundcache = {};
+
+
+			function reset_camera() {
+				switch(camera_index % 3) {
+					case 0:
+						camera.position.set(0, 40, -30);
+						camera.up.set(0, 1, 0);
+						camera.lookAt(new THREE.Vector3(0, 0, 0));
+						break;
+					case 1:
+						camera.position.set(4, 1, -5);
+						camera.up.set(0, 1, 0);
+						camera.lookAt(new THREE.Vector3(5, 0, 10));
+						break;
+					case 2:
+						camera.position.set(-10, 10, -15);
+						camera.up.set(0, 1, 0);
+						camera.lookAt(new THREE.Vector3(0, 0, 0));
+						break;
+				}
+			}
+
+			function invalidateGridMesh(bx, by) {
+				var id = bx+'_'+by;
+				if (typeof(groundcache[id]) != 'undefined') {
+					console.log('invalidateGridMesh', bx, by);
+					scene.remove(groundcache[id].mesh);
+					delete(groundcache[id]);
+				}
+			}
+
+			function tileLatLon(tilex, tiley, zoom) {
+				function sinh(x) { return (Math.exp(x) - Math.exp(-x)) / 2; }
+				var n = Math.pow(2, zoom);
+				var lon_deg = tilex / n * 360.0 - 180.0;
+				var lat_rad = Math.atan(sinh(Math.PI * (1.0 - 2.0 * tiley / n)));
+				var lat_deg = lat_rad * 180.0 / Math.PI;
+				return {
+					lat: Math.round(lat_deg * 10000) / 10000.0,
+					lon: Math.round(lon_deg * 10000) / 10000.0
+				};
+			}
+
+			function latLonTile(lat_deg, lon_deg, zoom) {
+				var lat_rad = lat_deg * Math.PI / 180.0;
+				var n = Math.pow(2, zoom);
+				var xtile = n * ((lon_deg + 180.0) / 360.0);
+				var sec = 1.0 / Math.cos(lat_rad);
+				var ytile = n * (1.0 - (Math.log(Math.tan(lat_rad) + sec) / Math.PI)) / 2;
+				return {
+					x: xtile,
+					y: ytile
+				}
+			}
+
+			var created_buildings = [];
+			var buildingcache = {};
+
+			function cacheGridBuildings(bx, by) {
+				var radius = 1;
+				var radius2 = 2 * radius;
+				var id = (Math.round(bx/radius2)*radius2)+'_'+(Math.round(by/radius2)*radius2);
+				if (typeof(buildingcache[id]) == 'undefined') {
+					var zoom = 18;
+					var tilex = tilexoffset + bx;
+					var tiley = tileyoffset - by;
+
+					var t0 = tileLatLon(tilex-radius, tiley+radius, zoom);
+					var t1 = tileLatLon(tilex+radius, tiley-radius, zoom);
+
+					console.log('bounds', t0, t1);
+
+					var latlng = t0.lat + ',' + t0.lon + ',' + t1.lat + ',' + t1.lon;
+
+					// http://overpass-api.de/api/interpreter?data=[out:json];(way[%22building%22](59.3475,18.09,59.355,18.105);node(w);way[%22building:part%22=%22yes%22](59.3475,18.09,59.355,18.105);node(w);relation[%22building%22](59.3475,18.09,59.355,18.105);way(r);node(w););out;
+
+					var url = 'http://overpass-api.de/api/interpreter?data=[out:json];(way[%22building%22]('+latlng+');node(w);way[%22building:part%22=%22yes%22]('+latlng+');node(w);relation[%22building%22]('+latlng+');way(r);node(w););out;';
+
+					// http://overpass-api.de/api/xapi?way[bbox=-74.02037,40.69704,-73.96922,40.73971][building=*][@meta]
+
+					//	window.open(url);
+
+					// url = 'testbuildings2.json';
+
+					console.log('url', url);
+
+					buildingcache[id] = {
+						source: null,
+						nodes: {},
+						ways: {}
+					};
+
+					$.get(url).success(function(data) {
+						console.log('got buildings', data);
+
+						buildingcache[id].source = data;
+
+						data.elements.forEach(function(el) {
+							if (el.lat && el.lon) {
+								var tilepos = latLonTile(el.lat, el.lon, zoom);
+								tilepos.x -= tilexoffset;
+								tilepos.y -= tileyoffset;
+								var pos = {}
+								pos.x = tilepos.x * gridsize * 1 - gridsize/2;
+								pos.z = tilepos.y * gridsize * 1 - gridsize/2;
+								pos.y = heightmap.getHeight(pos.x, -pos.z);
+								if (el.tags) {
+									pos.tags = el.tags;
+								}
+								buildingcache[id].nodes[el.id] = pos;
+							}
+						});
+
+						console.log(buildingcache[id]);
+
+						data.elements.forEach(function(el) {
+							if (el.type == 'way' && el.nodes) {
+								buildingcache[id].ways[el.id] = el;
+							}
+						});
+
+						/*
+						data.elements.forEach(function(el) {
+							if (el.type == 'way' && el.nodes) {
+								var randomcolor = Math.round(Math.random() * 0xffffff);
+
+								var mtrl = new THREE.MeshBasicMaterial({
+									wireframe: false,
+									color: randomcolor
+								});
+
+								el.nodes.forEach(function(nodeid) {
+									var node = buildingcache[id].nodes[nodeid];
+
+									var cube = new THREE.Mesh(
+										new THREE.CubeGeometry(1, 100, 1),
+										mtrl
+									);
+
+									cube.position.x = node.x;
+									cube.position.z = node.z;
+									cube.position.y = node.y + Math.random() * 20;
+									scene.add(cube);
+								});
+							}
+						});
+						*/
+
+						data.elements.forEach(function(el) {
+							if (el.type == 'relation' || (el.tags && el.tags.building)) {
+								if (created_buildings.indexOf(el.id) == -1) {
+									created_buildings.push(el.id);
+
+									console.log('building', el);
+
+									var starPoints = [];
+
+									if (el.members) {
+										el.members.forEach(function(memb) {
+											// console.log('member', memb);
+											// outers
+
+											if (memb.role == 'outer') {
+												var waynode = buildingcache[id].ways[memb.ref];
+												console.log('got outer line', waynode);
+												if (waynode) {
+													waynode.nodes.forEach(function(nodeid) {
+														var node = buildingcache[id].nodes[nodeid];
+														if (node) {
+															starPoints.push(new THREE.Vector2(node.x, node.z));
+														}
+													});
+												}
+
+											}
+										});
+									} else {
+										el.nodes.forEach(function(nodeid) {
+											var node = buildingcache[id].nodes[nodeid];
+											if (node) {
+												starPoints.push(new THREE.Vector2(node.x, node.z));
+											}
+										});
+									}
+
+									if (starPoints.length > 0) {
+										console.log('tags', el.tags);
+
+										var starShape = new THREE.Shape( starPoints );
+
+										var extrusionSettings = {
+											amount: 50,
+											size: 1,
+											height: 1,
+											curveSegments: 10,
+											bevelThickness: 1,
+											bevelSize: 2,
+											bevelEnabled: false,
+											material: 0,
+											extrudeMaterial: 1
+										};
+
+										var starGeometry = new THREE.ExtrudeGeometry( starShape, extrusionSettings );
+
+										var randomcolor = Math.round(Math.random() * 0xffffff);
+
+										var mtrl = new THREE.MeshBasicMaterial({
+											wireframe: false,
+											color: randomcolor
+										});
+
+										var cube = new THREE.Mesh(
+											starGeometry,
+											mtrl
+										);
+
+										cube.position.y = 20;
+										cube.rotation.x = Math.PI / 2;
+										scene.add(cube);
+									}
+
+									console.log('created building #' + el.id, el);
+								}
+							}
+						});
+					});
+				}
+			}
+
+			function cacheGridMesh(bx, by) {
+				var id = bx+'_'+by;
+				if (typeof(groundcache[id]) == 'undefined') {
+					console.log('cacheGridMesh', bx, by);
+					var zoom = 18;
+					var tilex = tilexoffset + bx;
+					var tiley = tileyoffset - by;
+					var fn = 'http://c.tile.openstreetmap.org/' + zoom + '/' + tilex + '/' + tiley + '.png';
+
+					var groundobj = {
+						material: null,
+						model: null,
+						geometry: null
+					};
+
+					// Materials
+					groundobj.material = Physijs.createMaterial(
+						// new THREE.MeshNormalMaterial(),
+						new THREE.MeshBasicMaterial({
+							color: 0xffffff,
+							map: THREE.ImageUtils.loadTexture(fn || 'plywood.jpg')
+						}),
+						.5, // high friction
+						.5 // low restitution
+					);
+					groundobj.material.map.wrapS =
+						groundobj.material.map.wrapT = THREE.RepeatWrapping;
+					groundobj.material.map.repeat.set( 1, 1 );
+
+					// Ground
+
+					groundobj.geometry = new THREE.PlaneGeometry( gridsize, gridsize, 9, 9 );
+					for ( var i = 0; i < groundobj.geometry.vertices.length; i++ ) {
+						var vertex = groundobj.geometry.vertices[i];
+						vertex.z = heightmap.getHeight(
+							vertex.x + bx * gridsize,
+							vertex.y + by * gridsize
+						);
+					}
+					groundobj.geometry.computeFaceNormals();
+					groundobj.geometry.computeVertexNormals();
+					groundobj.geometry.computeVertexNormals();
+
+					groundobj.mesh = new Physijs.HeightfieldMesh(
+						groundobj.geometry,
+						groundobj.material,
+						0
+					);
+
+					groundobj.mesh.rotation.x = -Math.PI / 2;
+					groundobj.mesh.position.x = bx * gridsize;
+					groundobj.mesh.position.z = -by * gridsize;
+
+					groundcache[id] = groundobj;
+					scene.add( groundobj.mesh );
+				}
+			}
+
+			function init() {
+
+				camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 1, 10000 );
+				reset_camera();
+
+				scene = new Physijs.Scene;
+				// scene = new THREE.Scene();
+
+				controls = new THREE.TrackballControls( camera );
+				controls.target.set( 0, 0, 0 );
+
+				renderer = new THREE.WebGLRenderer();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				document.body.appendChild( renderer.domElement );
+
+				scene.setGravity(new THREE.Vector3( 0, -40, 0 ));
+				scene.addEventListener(
+					'update',
+					function() {
+
+						if ( input && vehicle ) {
+							if ( input.direction !== null ) {
+								input.steering += input.direction / 50;
+								if ( input.steering < -.5 ) input.steering = -.5;
+								if ( input.steering > .5 ) input.steering = .5;
+							} else {
+								input.steering *= 0.95;
+							}
+							vehicle.setSteering( input.steering, 0 );
+							vehicle.setSteering( input.steering, 1 );
+							// vehicle.setSteering( -input.steering, 2 );
+							// vehicle.setSteering( -input.steering, 3 );
+
+							if (input.handbrake) {
+								vehicle.setBrake( 40, 0 );
+								vehicle.setBrake( 40, 1 );
+								vehicle.setBrake( 40, 2 );
+								vehicle.setBrake( 40, 3 );
+							} else if ( input.power === true ) {
+								vehicle.applyEngineForce( 1500 );
+							} else if ( input.power === false ) {
+								vehicle.applyEngineForce( -400 );
+								// vehicle.setBrake( 20, 2 );
+								// vehicle.setBrake( 20, 3 );
+							} else {
+								vehicle.applyEngineForce( 0 );
+							}
+						}
+
+						//	console.log(vehicle.mesh.position);
+
+						scene.simulate( undefined, 2 );
+						// physics_stats.update();
+					}
+				);
+
+				var loader = new THREE.JSONLoader();
+
+				loader.load( "mustang.js", function( car, car_materials ) {
+					loader.load( "mustang_wheel.js", function( wheel, wheel_materials ) {
+						var mesh = new Physijs.BoxMesh(
+							car,
+							new THREE.MeshNormalMaterial()
+						);
+
+						//	mesh.position.y = 10;
+						// mesh.position.z = 190;
+						mesh.position.x = 0;
+
+						vehicle = new Physijs.Vehicle(mesh, new Physijs.VehicleTuning(
+							20.88,
+							5.43,
+							2.1,
+							500,
+							10.5,
+							5000
+						));
+
+						scene.add(vehicle);
+
+						vehicle.mesh.add(camera);
+
+						var wheel_material = new THREE.MeshNormalMaterial();
+
+						for ( var i = 0; i < 4; i++ ) {
+							vehicle.addWheel(
+								wheel,
+								wheel_material,
+								new THREE.Vector3(
+										i % 2 === 0 ? -1.6 : 1.6,
+										-1,
+										i < 2 ? 3.3 : -3.2
+								),
+								new THREE.Vector3( 0, -1, 0 ),
+								new THREE.Vector3( -1, 0, 0 ),
+								0.9,
+								0.4,
+								i < 2 ? false : true
+							);
+						}
+
+						document.addEventListener('keydown', function( ev ) {
+							switch ( ev.keyCode ) {
+								case 37: // left
+									input.direction = 1;
+									break;
+
+								case 38: // forward
+									input.power = true;
+									break;
+
+								case 39: // right
+									input.direction = -1;
+									break;
+
+								case 40: // back
+									input.power = false;
+									break;
+
+								case 32: // space
+									input.handbrake = true;
+									break;
+
+								case 27: // reset
+									vehicle.mesh.position.y = 10;
+    								vehicle.mesh.quaternion.set(0, 1, 0, 0);
+									vehicle.mesh.setLinearVelocity({ x:0, y:0, z:0 });
+									vehicle.mesh.setAngularVelocity({ x:0, y:0, z:0 });
+    								vehicle.mesh.__dirtyPosition = true;
+									vehicle.mesh.__dirtyRotation = true;
+									break;
+
+								case 67:
+									camera_index ++;
+									reset_camera();
+									break
+
+								default:
+									console.log('unhandled key', ev.keyCode);
+									break;
+							}
+						});
+
+						document.addEventListener('keyup', function( ev ) {
+							switch ( ev.keyCode ) {
+								case 37: // left
+									input.direction = null;
+									break;
+
+								case 38: // forward
+									input.power = null;
+									break;
+
+								case 39: // right
+									input.direction = null;
+									break;
+
+								case 40: // back
+									input.power = null;
+									break;
+
+								case 32: // space
+									input.handbrake = null;
+									break;
+							}
+						});
+
+						scene.simulate();
+						update();
+					});
+				});
+			}
+
+			function update() {
+				if (scene && vehicle && vehicle.mesh) {
+					var bx = Math.round(vehicle.mesh.position.x / gridsize);
+					var by = Math.round(-vehicle.mesh.position.z / gridsize);
+
+					invalidateGridMesh(bx-2, by-2);
+					invalidateGridMesh(bx-2, by-1);
+					invalidateGridMesh(bx-2, by);
+					invalidateGridMesh(bx-2, by+1);
+					invalidateGridMesh(bx-2, by+2);
+					invalidateGridMesh(bx+2, by-2);
+					invalidateGridMesh(bx+2, by-1);
+					invalidateGridMesh(bx+2, by);
+					invalidateGridMesh(bx+2, by+1);
+					invalidateGridMesh(bx+2, by+2);
+					invalidateGridMesh(bx-1, by-2);
+					invalidateGridMesh(bx,   by-2);
+					invalidateGridMesh(bx+1, by-2);
+					invalidateGridMesh(bx-1, by+2);
+					invalidateGridMesh(bx,   by+2);
+					invalidateGridMesh(bx+1, by+2);
+
+					cacheGridMesh(bx-1, by-1);
+					cacheGridMesh(bx,   by-1);
+					cacheGridMesh(bx+1, by-1);
+					cacheGridMesh(bx-1, by);
+					cacheGridMesh(bx,   by);
+					cacheGridMesh(bx+1, by);
+					cacheGridMesh(bx-1, by+1);
+					cacheGridMesh(bx,   by+1);
+					cacheGridMesh(bx+1, by+1);
+
+					cacheGridBuildings(bx, by);
+				}
+
+				controls.update();
+				renderer.render( scene, camera );
+				requestAnimationFrame(update);
+			}
+
+		</script>
+	</body>
+</html>

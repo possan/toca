@@ -1,0 +1,347 @@
+<!DOCTYPE HTML>
+<html lang="en">
+	<head>
+		<title>three.js particle tutorial</title>
+		<meta charset="utf-8">
+		<style type="text/css">
+
+			body {
+				background-color: #444;
+				margin: 0px;
+				overflow: hidden;
+				font-size: 10pt;
+			}
+
+			#meshes {
+				position:absolute;
+				left:0px;
+				top:0px;
+				color:#fff;
+			}
+
+			#meshes a {
+				display: inline-block;
+				width: 120px;
+				color: #888888;
+			}
+
+			#meshes a:hover {
+				color: #ffff00;
+			}
+
+		</style>
+	</head>
+	<body>
+		<script src="Three.js"></script>
+		<script src="TrackballControls.js"></script>
+		<script src="simplex-noise.js"></script>
+		<script src="TOCAModel.js"></script>
+		<script type="text/javascript" src="physi.js"></script>
+
+		<div id="meshes">
+		</div>
+
+		<script defer="defer">
+
+			Physijs.scripts.worker = 'physijs_worker.js';
+			Physijs.scripts.ammo = 'ammo.js';
+
+			var camera, scene, renderer;
+
+			var input = {
+				power: null,
+				direction: null,
+				steering: 0,
+				handbrake: false
+			};
+
+			var vehicle;
+
+			init();
+
+			function init() {
+
+				camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 1, 10000 );
+				camera.position.set(-5,3,-250);
+				camera.up = new THREE.Vector3(0,1,0);
+				camera.lookAt(new THREE.Vector3(0,0,0));
+
+				scene = new Physijs.Scene;
+				// scene = new THREE.Scene();
+				scene.add(camera);
+
+				controls = new THREE.TrackballControls( camera );
+				controls.target.set( 0, 0, 0 );
+
+				renderer = new THREE.WebGLRenderer();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+				document.body.appendChild( renderer.domElement );
+
+
+
+
+
+
+
+
+
+
+
+				scene.setGravity(new THREE.Vector3( 0, -50, 0 ));
+				scene.addEventListener(
+					'update',
+					function() {
+
+						// console.log(input);
+
+						if ( input && vehicle ) {
+							if ( input.direction !== null ) {
+								input.steering += input.direction / 50;
+								if ( input.steering < -.6 ) input.steering = -.6;
+								if ( input.steering > .6 ) input.steering = .6;
+							} else {
+								input.steering *= 0.95;
+							}
+							vehicle.setSteering( input.steering, 0 );
+							vehicle.setSteering( input.steering, 1 );
+							// vehicle.setSteering( -input.steering, 2 );
+							// vehicle.setSteering( -input.steering, 3 );
+
+							if (input.handbrake) {
+								vehicle.setBrake( 40, 0 );
+								vehicle.setBrake( 40, 1 );
+								vehicle.setBrake( 40, 2 );
+								vehicle.setBrake( 40, 3 );
+							} else if ( input.power === true ) {
+								vehicle.applyEngineForce( 1000 );
+							} else if ( input.power === false ) {
+								vehicle.applyEngineForce( -500 );
+								// vehicle.setBrake( 20, 2 );
+								// vehicle.setBrake( 20, 3 );
+							} else {
+								vehicle.applyEngineForce( 0 );
+							}
+						}
+
+						//	console.log(vehicle.mesh.position);
+
+						scene.simulate( undefined, 2 );
+						// physics_stats.update();
+					}
+				);
+
+				var loader = new THREE.JSONLoader();
+
+				loader.load( "mustang.js", function( car, car_materials ) {
+					loader.load( "mustang_wheel.js", function( wheel, wheel_materials ) {
+						var mesh = new Physijs.BoxMesh(
+							car,
+							new THREE.MeshNormalMaterial()
+							// new THREE.MeshFaceMaterial( car_materials )
+						);
+						mesh.position.y = 20;
+						mesh.position.z = 30;
+						mesh.position.x = 20;
+						// mesh.castShadow = mesh.receiveShadow = true;
+
+						vehicle = new Physijs.Vehicle(mesh, new Physijs.VehicleTuning(
+							10.88,
+							1.83,
+							0.28,
+							500,
+							10.5,
+							6000
+						));
+						scene.add( vehicle );
+
+						// vehicle.position.set(20,0,0);
+
+						var wheel_material =
+							new THREE.MeshNormalMaterial();
+							// new THREE.MeshFaceMaterial( wheel_materials );
+
+						for ( var i = 0; i < 4; i++ ) {
+							vehicle.addWheel(
+								wheel,
+								wheel_material,
+								new THREE.Vector3(
+										i % 2 === 0 ? -1.6 : 1.6,
+										-1,
+										i < 2 ? 3.3 : -3.2
+								),
+								new THREE.Vector3( 0, -1, 0 ),
+								new THREE.Vector3( -1, 0, 0 ),
+								0.8,
+								0.8,
+								i < 2 ? false : true
+							);
+						}
+
+						document.addEventListener('keydown', function( ev ) {
+							switch ( ev.keyCode ) {
+								case 37: // left
+									input.direction = 1;
+									break;
+
+								case 38: // forward
+									input.power = true;
+									break;
+
+								case 39: // right
+									input.direction = -1;
+									break;
+
+								case 40: // back
+									input.power = false;
+									break;
+
+								case 32: // space
+									input.handbrake = true;
+									break;
+							}
+						});
+
+						document.addEventListener('keyup', function( ev ) {
+							switch ( ev.keyCode ) {
+								case 37: // left
+									input.direction = null;
+									break;
+
+								case 38: // forward
+									input.power = null;
+									break;
+
+								case 39: // right
+									input.direction = 0;
+									break;
+
+								case 40: // back
+									input.power = null;
+									break;
+
+								case 32: // space
+									input.handbrake = false;
+									break;
+							}
+						});
+					});
+				});
+
+				// Materials
+				ground_material = Physijs.createMaterial(
+					new THREE.MeshNormalMaterial(),
+					// new THREE.MeshLambertMaterial({map: THREE.ImageUtils.loadTexture( 'plywood.jpg' )}),
+					.5, // high friction
+					.1 // low restitution
+				);
+				// ground_material.map.wrapS = ground_material.map.wrapT = THREE.RepeatWrapping;
+				// ground_material.map.repeat.set( 3, 3 );
+
+				// Ground
+				var NoiseGen = new SimplexNoise;
+
+				var ground_geometry = new THREE.PlaneGeometry( 500, 500, 4, 4 );
+				for ( var i = 0; i < ground_geometry.vertices.length; i++ ) {
+					var vertex = ground_geometry.vertices[i];
+					// console.log(vertex.z);
+					vertex.z = NoiseGen.noise( vertex.x / 100, vertex.y / 100 ) * 6;
+				}
+				ground_geometry.computeFaceNormals();
+				ground_geometry.computeVertexNormals();
+
+				// If your plane is not square as far as face count then the HeightfieldMesh
+				// takes two more arguments at the end: # of x faces and # of z faces that were passed to THREE.PlaneMaterial
+				ground = new Physijs.HeightfieldMesh(
+					ground_geometry,
+					ground_material,
+					0 // mass
+				);
+				ground.rotation.x = -Math.PI / 2;
+				//	ground.receiveShadow = true;
+				scene.add( ground );
+				/*
+				*/
+
+				/*
+				var ground2 = new TOCAModel();
+				ground2.loadFromURL('raw/Don_GP.bfp-merged.m3d-object.json');
+				// ground2.loadFromURL('raw/KnockHil.bfp-merged.m3d-object.json');
+				// ground2.loadFromURL('raw/Brands.bfp-merged.m3d-object.json');
+				// scene.add(ground2.rootObject);
+
+				setTimeout(function() {
+					var ground_geometry = ground2.singleGeometry;
+					for (var i = 0; i < ground_geometry.vertices.length; i++) {
+						var vertex = ground_geometry.vertices[i];
+						// console.log(vertex.z);
+						// vertex.y = Math.random() * 3;
+					}
+					ground_geometry.computeFaceNormals();
+					ground_geometry.computeVertexNormals();
+					var ground3 = new Physijs.ConvexMesh(ground_geometry, ground_material, 0);
+					scene.add(ground3);
+				}, 500);
+				*/
+
+				/*
+				var car = new TOCAModel();
+				car.loadFromURL('raw/ALLVOL.m3d-object.json');
+				scene.add(car.rootObject);
+				*/
+
+				/*
+				setTimeout(function() {
+					car.setvis2('', true);
+					car.setvis2('VE_', false);
+					car.setvis2('MS40', false);
+					car.setvis2('LS40', false);
+					car.setvis2('VBody', false);
+					car.setvis2('Vr', false);
+					car.setvis2('Vf', false);
+				}, 2000);
+				*/
+
+				/*
+				var joystick = new TOCAModel();
+				joystick.loadFromURL('raw/JOYSTIK.m3d-object.json');
+				scene.add(joystick.rootObject);
+
+				var keyboard = new TOCAModel();
+				keyboard.loadFromURL('raw/KEYBORD.m3d-object.json');
+				scene.add(keyboard.rootObject);
+				*/
+
+				// setInterval(update, 1000/30);
+				/*
+				var cube = new THREE.Mesh(
+					new THREE.CubeGeometry(100, 100, 100),
+					new THREE.MeshBasicMaterial({
+						wireframe: true,
+						color: 'cyan'
+					}));
+				scene.add(cube);
+				*/
+
+				update();
+				scene.simulate();
+			}
+
+			function update() {
+
+				controls.update();
+
+				/*
+				if (vehicle) {
+					camera.position.copy( vehicle.mesh.position ).add( new THREE.Vector3( 40, 25, 40 ) );
+					camera.lookAt( vehicle.mesh.position );
+				} */
+
+				renderer.render( scene, camera );
+
+				requestAnimationFrame(update);
+			}
+
+		</script>
+	</body>
+</html>
